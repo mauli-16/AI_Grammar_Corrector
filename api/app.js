@@ -1,13 +1,21 @@
 import "dotenv/config";
 import express from "express";
 import fetch from "node-fetch";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
-const port = process.env.PORT || 5000;
 
+// Setup __dirname for ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// EJS and form parsing
+app.set("views", path.join(__dirname, "../views"));
 app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: true }));
 
+// Routes
 app.get("/", (req, res) => {
   res.render("index", {
     corrected: "",
@@ -15,15 +23,16 @@ app.get("/", (req, res) => {
   });
 });
 
-//Main login route
 app.post("/", async (req, res) => {
   const text = req.body.text.trim();
+
   if (!text) {
     return res.render("index", {
       corrected: "Please enter some text to correct",
-      originalText: text,
+      originalText: "",
     });
   }
+
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -35,25 +44,16 @@ app.post("/", async (req, res) => {
         model: "gpt-4",
         messages: [
           { role: "system", content: "You are a helpful assistant" },
-          {
-            role: "user",
-            content: `Correct the following text: ${text}`,
-          },
+          { role: "user", content: `Correct this text: ${text}` },
         ],
         max_tokens: 100,
-        n: 1,
-        stop: null,
         temperature: 1,
       }),
     });
-    if (!response.ok) {
-      return res.render("index", {
-        corrected: "Error. Please try again.",
-        originalText: text,
-      });
-    }
+
     const data = await response.json();
-    const correctedText = data.choices[0].message.content;
+    const correctedText = data.choices?.[0]?.message?.content || "Could not get a correction.";
+
     res.render("index", {
       corrected: correctedText,
       originalText: text,
@@ -65,4 +65,6 @@ app.post("/", async (req, res) => {
     });
   }
 });
-export default app
+
+// ✅ Required export
+export default app;

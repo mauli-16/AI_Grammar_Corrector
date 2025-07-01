@@ -65,7 +65,3 @@ app.post("/", async (req, res) => {
     });
   }
 });
-//start the server
-app.listen(port, () => {
-  console.log(`Server started on port ${port}`);
-});

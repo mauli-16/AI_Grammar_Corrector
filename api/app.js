@@ -19,7 +19,7 @@ app.get("/", (req, res) => {
 app.post("/", async (req, res) => {
   const text = req.body.text.trim();
   if (!text) {
-    res.render("index", {
+    return res.render("index", {
       corrected: "Please enter some text to correct",
       originalText: text,
     });
@@ -32,7 +32,7 @@ app.post("/", async (req, res) => {
         Authorization: `Bearer ${process.env.OPENAI_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4",
         messages: [
           { role: "system", content: "You are a helpful assistant" },
           {
@@ -47,7 +47,7 @@ app.post("/", async (req, res) => {
       }),
     });
     if (!response.ok) {
-      res.render("index", {
+      return res.render("index", {
         corrected: "Error. Please try again.",
         originalText: text,
       });
@@ -65,3 +65,4 @@ app.post("/", async (req, res) => {
     });
   }
 });
+export default app

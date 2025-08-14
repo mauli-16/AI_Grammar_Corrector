@@ -1,115 +1,137 @@
-import "dotenv/config";
-import express from "express";
-import fetch from "node-fetch";
-import path from "path";
-import { fileURLToPath } from "url";
+```javascript
+import app from "./app.js";
+import request from "supertest";
+import { jest } from "@jest/globals";
 
-const port = 5000;
-const app = express();
+// Mock the fetch function
+jest.mock("node-fetch", () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
 
-// Setup __dirname for ES module
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const fetch = require("node-fetch");
 
-// EJS and form parsing
-app.set("views", path.join(__dirname, "views"));
-app.set("view engine", "ejs");
-app.use(express.urlencoded({ extended: true }));
+describe("app.js", () => {
+  beforeEach(() => {
+    // Reset the fetch mock before each test
+    fetch.mockReset();
+    //Clear the environment variable before each test to avoid conflicts
+    delete process.env.GEMINI_API_KEY;
+  });
 
-// Routes
-app.get("/", (req, res) => {
-  res.render("index", {
-    corrected: "",
-    originalText: "",
+  it("testSuccessfulCorrection", async () => {
+    const mockResponse = {
+      candidates: [
+        {
+          content: {
+            parts: [{ text: "There is a mistake in this sentence." }],
+          },
+        },
+      ],
+    };
+    fetch.mockResolvedValueOnce({
+      json: () => Promise.resolve(mockResponse),
+    });
+
+    const response = await request(app).post("/").send({ text: "Ther is a misstake in this sentense." });
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Ther is a misstake in this sentense.");
+    expect(response.text).toContain("There is a mistake in this sentence.");
+  });
+
+  it("testEmptyInput", async () => {
+    const response = await request(app).post("/").send({ text: "" });
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Please enter some text to correct");
+    expect(response.text).not.toContain("originalText");
+  });
+
+
+  it("testMissingAPIKey", async () => {
+    const response = await request(app).post("/").send({ text: "Some text" });
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Server error: Gemini API key is missing.");
+    expect(response.text).toContain("Some text");
+    expect(console.error).toHaveBeenCalledWith("GEMINI_API_KEY is not set in environment variables.");
+  });
+
+  it("testGeminiAPIError", async () => {
+    const mockErrorResponse = { error: { message: "Gemini API error occurred" } };
+    fetch.mockResolvedValueOnce({
+      json: () => Promise.resolve(mockErrorResponse),
+    });
+
+    const response = await request(app).post("/").send({ text: "Some text" });
+    process.env.GEMINI_API_KEY = "somekey"; // Set API key to allow the request to go through
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("API Error: Gemini API error occurred");
+    expect(response.text).toContain("Some text");
+    expect(console.error).toHaveBeenCalledWith("Gemini API Error:", mockErrorResponse);
+  });
+
+  it("testNetworkError", async () => {
+    fetch.mockRejectedValueOnce(new Error("Network error"));
+    const response = await request(app).post("/").send({ text: "Some text" });
+    process.env.GEMINI_API_KEY = "somekey"; // Set API key to allow the request to go through
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Error. Please try again.");
+    expect(response.text).toContain("Some text");
+    expect(console.error).toHaveBeenCalledWith("Fetch or parsing error:", new Error("Network error"));
+  });
+
+  it("testMalformedResponse", async () => {
+    fetch.mockResolvedValueOnce({ json: () => Promise.resolve({}) });
+    const response = await request(app).post("/").send({ text: "Some text" });
+    process.env.GEMINI_API_KEY = "somekey"; // Set API key to allow the request to go through
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Could not get a correction.");
+    expect(response.text).toContain("Some text");
+    //Note:  Console warning is not directly testable without more sophisticated mocking.  The test verifies the correct error handling.
+  });
+
+  it("testGetRequest", async () => {
+    const response = await request(app).get("/");
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('value=""'); //Check for empty input fields
+    expect(response.text).toContain("originalText"); // Check that originalText field exists
+    expect(response.text).toContain("corrected"); //Check that corrected field exists
+
   });
 });
 
-app.post("/", async (req, res) => {
-  const text = req.body.text.trim();
+```
 
-  if (!text) {
-    return res.render("index", {
-      corrected: "Please enter some text to correct",
-      originalText: "",
-    });
-  }
+**To run this test:**
 
-  try {
-    // Get Gemini API key from environment variables
-    // IMPORTANT: Ensure you have GEMINI_API_KEY in your .env file
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+1.  **Install dependencies:**  Make sure you have Node.js and npm (or yarn) installed. Then, in your terminal, navigate to the directory containing this test file and run:
 
-    if (!GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY is not set in environment variables.");
-      return res.render("index", {
-        corrected: "Server error: Gemini API key is missing.",
-        originalText: text,
-      });
-    }
+    ```bash
+    npm install supertest express ejs dotenv node-fetch @jest/globals
+    ```
+2.  **Create `app.js`:** Create a file named `app.js` in the same directory and paste the provided `app.js` code into it.
+3.  **Create `views/index.ejs`:** Create a directory named `views` and inside it, create a file named `index.ejs`.  This file should contain the basic HTML for your form.  A minimal example:
 
-    // Gemini API endpoint for text generation (using gemini-2.0-flash model)
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    ```html
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Text Corrector</title>
+    </head>
+    <body>
+        <h1>Text Corrector</h1>
+        <form method="POST" action="/">
+            <textarea name="text" rows="5" cols="50"><%= originalText %></textarea><br>
+            <button type="submit">Correct</button>
+        </form>
+        <p><%= corrected %></p>
+    </body>
+    </html>
+    ```
 
-    // Payload structure for Gemini API request
-    const payload = {
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: `Correct this text: ${text}` },
-          ],
-        },
-      ],
-      // Configuration for text generation, similar to OpenAI's parameters
-      generationConfig: {
-        maxOutputTokens: 100, // Maximum number of tokens in the generated response
-        temperature: 0.7,     // Controls randomness (0.0-1.0). Lower values are more deterministic.
-      },
-    };
+4.  **Run Jest:** In your terminal, run:
 
-    // Make the API call to Gemini
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    ```bash
+    npx jest
+    ```
 
-    const data = await response.json();
-    console.log("Gemini API Response:", JSON.stringify(data, null, 2));
-
-    let correctedText = "Could not get a correction.";
-
-    // Extract the corrected text from the Gemini API response
-    // The response structure is different from OpenAI, so we navigate through `candidates`, `content`, and `parts`.
-    if (data.candidates && data.candidates.length > 0 &&
-        data.candidates[0].content && data.candidates[0].content.parts &&
-        data.candidates[0].content.parts.length > 0) {
-      correctedText = data.candidates[0].content.parts[0].text;
-    } else if (data.error) {
-      // If the API returns an error, display its message
-      correctedText = `API Error: ${data.error.message || "Unknown error"}`;
-      console.error("Gemini API Error:", data.error);
-    }
-
-    res.render("index", {
-      corrected: correctedText,
-      originalText: text,
-    });
-  } catch (error) {
-    // Catch any network or parsing errors
-    console.error("Fetch or parsing error:", error);
-    res.render("index", {
-      corrected: "Error. Please try again.",
-      originalText: text,
-    });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`Server is running on ${port}`);
-});
-
-// ✅ Required export for the app
-export default app;
+This will execute the Jest tests.  The tests will use `supertest` to make HTTP requests to your app, and `jest.mock` will mock the `node-fetch` library to simulate API calls and network conditions.  Remember to create a `.env` file in the root of your project if you want to test the successful correction scenario (and any scenario relying on a real API key).  For testing purposes, the API key can be a placeholder value.  However, for production, ensure you follow the instructions in the comments to properly secure your API keys.
